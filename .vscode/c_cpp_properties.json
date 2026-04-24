@@ -1,0 +1,24 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "x64-msvc-cuda",
+      "includePath": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}",
+        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/include",
+        "D:/SDKs/optix-sdk-8.1.0/include"
+      ],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "windowsSdkVersion": "10.0.22000.0",
+      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.35.32215/bin/Hostx64/x64/cl.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ]
+}

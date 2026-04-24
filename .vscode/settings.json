@@ -1,0 +1,18 @@
+{
+  "cmake.configureOnOpen": true,
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.generator": "Visual Studio 17 2022",
+  "cmake.configureSettings": {
+    "OPTIX_ROOT": "D:/SDKs/optix-sdk-8.1.0"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.35.32215/bin/Hostx64/x64/cl.exe",
+  "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}",
+    "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/include",
+    "D:/SDKs/optix-sdk-8.1.0/include"
+  ]
+}

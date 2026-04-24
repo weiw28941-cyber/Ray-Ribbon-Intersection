@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cmake-configure",
+      "type": "shell",
+      "command": "\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -G \"Visual Studio 17 2022\" -A x64 -DOPTIX_ROOT=\"D:/SDKs/optix-sdk-8.1.0\"",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake-build-release",
+      "type": "shell",
+      "command": "\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config Release",
+      "dependsOn": "cmake-configure",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$msCompile"
+      ]
+    }
+  ]
+}
+

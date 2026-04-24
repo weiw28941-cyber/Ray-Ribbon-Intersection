@@ -1,0 +1,8 @@
+build/
+*.user
+*.suo
+*.vcxproj.user
+paper_extracted.txt
+*.ptx
+*.ppm
+
