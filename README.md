@@ -14,6 +14,10 @@ Implemented in this repo:
   - closest-hit shading (`__closesthit__ch`)
 - Cubic + quadratic root solving used by the intersectors
 - Demo scene rendering to `PPM`
+- Production-oriented app skeleton:
+  - `scene/` scene data + loader
+  - `app/` runtime orchestration
+  - CLI arguments for scene/output/resolution/PTX
 
 ## 1) Prerequisites
 
@@ -51,6 +55,23 @@ cd build
 .\Release\ray_ribbon.exe
 ```
 
+or:
+
+```powershell
+.\Release\ray_ribbon.exe --scene ..\..\scenes\default.rrs --out output.exr --aov-dir aovs --width 1280 --height 720 --spp 16 --max-depth 4 --denoise
+```
+
+## 5) One-Command Demo (Windows PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_demo.ps1 -Denoise
+```
+
+Demo output:
+
+- `demo_output/demo_beauty.exr`
+- `demo_output/aovs/` (albedo/normal/depth/beauty and denoised beauty when enabled)
+
 Output image:
 
 - `build\Release\output.ppm`
@@ -60,3 +81,24 @@ Output image:
 - Device program entry is in `src/device/ribbon_kernels.cu`.
 - Host-side OptiX setup and GAS build are in `src/optix_renderer.cpp`.
 - Shared primitive/layout structs are in `src/shared/ribbon_types.h`.
+- Scene parsing is in `src/scene/scene.cpp`.
+- Scene light lines:
+  - `light_dir dx dy dz r g b intensity`
+  - `light_point px py pz r g b intensity`
+  - `light_rect cx cy cz ux uy uz vx vy vz r g b intensity`
+- Material extension in ribbon lines(optional tail values):
+  - `material_type`: `0=diffuse`, `1=metal`, `2=dielectric`
+  - `ior`: index of refraction(e.g. 1.45)
+- CLI options:
+  - `--scene <path>`
+  - `--out <path>`
+  - `--aov-dir <path>` outputs `albedo.ppm`, `normal.ppm`, `depth.ppm`
+  - `--width <int>`
+  - `--height <int>`
+  - `--spp <int>`
+  - `--max-depth <int>`
+  - `--exposure <float>`
+  - `--gamma <float>`
+  - `--firefly-clamp <float>`
+  - `--denoise` enable OptiX denoiser(beauty guided by albedo+normal)
+  - `--ptx <path>`

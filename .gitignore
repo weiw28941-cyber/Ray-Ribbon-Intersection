@@ -1,8 +1,47 @@
+# Build artifacts
 build/
+out/
+bin/
+obj/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.lib
+*.exp
+*.dll
+*.exe
+*.ptx
+
+# CMake / VS
+.vs/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
 *.user
 *.suo
-*.vcxproj.user
-paper_extracted.txt
-*.ptx
-*.ppm
 
+# Render outputs
+*.ppm
+*.png
+*.jpg
+*.jpeg
+*.hdr
+*.exr
+aovs*/
+demo_output/
+output*/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Local notes
+paper_extracted.txt

@@ -1,0 +1,20 @@
+# Ray Ribbon Scene (simple text format)
+# render width height
+render 1280 720 16 4 1.0 2.2 10.0
+# camera_from x y z
+camera_from 0.0 0.8 2.0
+# camera_at x y z
+camera_at 0.0 0.0 -4.0
+# camera_fov degrees
+camera_fov 35.0
+light_dir -0.6 -1.0 -0.4  1.0 0.98 0.92  1.5
+light_point 0.0 1.8 -2.5  1.0 0.95 0.85  16.0
+light_rect 0.0 2.2 -3.8  0.9 0.0 0.0  0.0 0.0 0.9  1.0 0.98 0.95  8.0
+
+# ribbon2:
+# q00 xyz, q01 xyz, q10 xyz, q11 xyz, w0 w1 w2
+ribbon2 -1.2 -0.4 -3.6  -1.2 0.1 -3.6   1.0 -0.4 -5.2   1.0 0.0 -5.2   0.10 0.02 -0.01  0.95 0.72 0.35  0.0 0.0 1.0  0 1.5
+
+# ribbon3:
+# b0 xyz, b1 xyz, b2 xyz, bt0 xyz, bt1 xyz, width
+ribbon3 -0.8 -0.1 -3.0   0.0 1.2 -4.2   0.9 0.0 -5.0   0.0 0.0 1.0   0.0 0.0 1.0   0.13  0.95 0.98 1.00  0.0 0.0 0.02  2 1.45

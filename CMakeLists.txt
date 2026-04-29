@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(RayRibbonIntersection LANGUAGES CXX CUDA)
+project(RayRibbonIntersection LANGUAGES C CXX CUDA)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -23,12 +23,18 @@ endif()
 add_executable(ray_ribbon
   src/main.cpp
   src/optix_renderer.cpp
+  src/app/render_app.cpp
+  src/scene/scene.cpp
+  src/io/image_io.cpp
+  third_party/tinyexr-release/deps/miniz/miniz.c
 )
 
 target_include_directories(ray_ribbon PRIVATE
   ${CUDAToolkit_INCLUDE_DIRS}
   ${OPTIX_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyexr-release
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyexr-release/deps/miniz
 )
 
 target_link_libraries(ray_ribbon PRIVATE CUDA::cuda_driver CUDA::cudart)

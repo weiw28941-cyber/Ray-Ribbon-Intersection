@@ -35,9 +35,14 @@ struct Ribbon3Data {
 
 struct RibbonPrimitive {
   int type;
+  int material_id;
+  int material_type;  // 0: diffuse, 1: metal, 2: dielectric
   int _pad0;
-  int _pad1;
-  int _pad2;
+  float3 base_color;
+  float emission;
+  float metallic;
+  float roughness;
+  float ior;
   Ribbon2Data r2;
   Ribbon3Data r3;
 };
