@@ -1,4 +1,5 @@
 #include "app/render_app.h"
+#include "app/realtime_app.h"
 
 #include <filesystem>
 #include <stdexcept>
@@ -55,9 +56,52 @@ int main(int argc, char** argv) {
       options.firefly_clamp = std::stof(argv[++i]);
     } else if (arg == "--denoise") {
       options.denoise = true;
+    } else if (arg == "--realtime" || arg == "--interactive") {
+      options.realtime = true;
+    } else if (arg == "--wind") {
+      options.wind = true;
+    } else if (arg == "--wind-strength" && i + 1 < argc) {
+      options.wind_strength = std::stof(argv[++i]);
+    } else if (arg == "--wind-speed" && i + 1 < argc) {
+      options.wind_speed = std::stof(argv[++i]);
+    } else if (arg == "--wind-mode" && i + 1 < argc) {
+      options.wind_mode = argv[++i];
+    } else if (arg == "--wind-backend" && i + 1 < argc) {
+      options.wind_backend = argv[++i];
+    } else if (arg == "--gas-rebuild-interval" && i + 1 < argc) {
+      options.gas_rebuild_interval = static_cast<unsigned>(std::stoul(argv[++i]));
+    } else if (arg == "--gas-rebuild-static-quality") {
+      options.gas_rebuild_static_quality = true;
+    } else if (arg == "--wind-core-profile") {
+      options.wind_core_profile = true;
+    } else if (arg == "--benchmark-wind") {
+      options.benchmark_wind_frames = 180;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        options.benchmark_wind_frames = static_cast<unsigned>(std::stoul(argv[++i]));
+      }
+    } else if (arg == "--benchmark-static") {
+      options.benchmark_static_frames = 180;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        options.benchmark_static_frames = static_cast<unsigned>(std::stoul(argv[++i]));
+      }
+    } else if (arg == "--benchmark-core") {
+      options.benchmark_core_frames = 180;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        options.benchmark_core_frames = static_cast<unsigned>(std::stoul(argv[++i]));
+      }
+    } else if (arg == "--benchmark-aabb") {
+      options.benchmark_aabb_frames = 180;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        options.benchmark_aabb_frames = static_cast<unsigned>(std::stoul(argv[++i]));
+      }
     } else if (arg == "--ptx" && i + 1 < argc) {
       ++i;
     }
+  }
+
+  if (options.realtime) {
+    rr::RealtimeApp app;
+    return app.run(options);
   }
 
   rr::RenderApp app;

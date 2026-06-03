@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstring>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <vector>
@@ -18,6 +19,14 @@ static float clamp01(float v) {
   return std::min(1.0f, std::max(0.0f, v));
 }
 
+static void ensure_parent_directory(const std::string& path) {
+  const std::filesystem::path output(path);
+  const std::filesystem::path parent = output.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+}
+
 bool path_has_extension(const std::string& path, const char* ext_lowercase) {
   if (!ext_lowercase) return false;
   std::string p = path;
@@ -29,6 +38,7 @@ bool path_has_extension(const std::string& path, const char* ext_lowercase) {
 }
 
 void save_rgb_ldr(const std::string& path, const std::vector<uchar4>& pixels, unsigned width, unsigned height) {
+  ensure_parent_directory(path);
   std::ofstream out(path, std::ios::binary);
   if (!out) throw std::runtime_error("Cannot open output image: " + path);
   out << "P6\n" << width << " " << height << "\n255\n";
@@ -40,6 +50,7 @@ void save_rgb_ldr(const std::string& path, const std::vector<uchar4>& pixels, un
 }
 
 void save_rgb_hdr_exr(const std::string& path, const std::vector<float4>& pixels, unsigned width, unsigned height) {
+  ensure_parent_directory(path);
   std::vector<float> images[3];
   images[0].resize(width * height);
   images[1].resize(width * height);
@@ -100,6 +111,7 @@ void save_aov_from_float4_ppm(
     unsigned height,
     bool remap_normal,
     bool depth_mode) {
+  ensure_parent_directory(path);
   std::ofstream out(path, std::ios::binary);
   if (!out) throw std::runtime_error("Cannot open output image: " + path);
   out << "P6\n" << width << " " << height << "\n255\n";

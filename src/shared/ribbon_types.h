@@ -4,7 +4,10 @@
 
 enum RibbonType : int {
   RIBBON_TYPE_2 = 2,
-  RIBBON_TYPE_3 = 3
+  RIBBON_TYPE_3 = 3,
+  RIBBON_TYPE_4A = 4,
+  RIBBON_TYPE_4B = 5,
+  RIBBON_TYPE_4C = 6
 };
 
 struct Ribbon2Data {
@@ -33,6 +36,20 @@ struct Ribbon3Data {
   float _pad;
 };
 
+struct Ribbon4Data {
+  float3 d0;
+  float3 d1;
+  float3 d2;
+  float3 d3;
+  float3 g0;
+  float3 g1;
+  float3 g2;
+  float w0;
+  float w1;
+  float w2;
+  float _pad;
+};
+
 struct RibbonPrimitive {
   int type;
   int material_id;
@@ -43,6 +60,9 @@ struct RibbonPrimitive {
   float metallic;
   float roughness;
   float ior;
-  Ribbon2Data r2;
-  Ribbon3Data r3;
+  union {
+    Ribbon2Data r2;
+    Ribbon3Data r3;
+    Ribbon4Data r4;
+  };
 };

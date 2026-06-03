@@ -54,6 +54,14 @@ static __forceinline__ __device__ float3 clamp3max(const float3& a, float mx) {
   return f3(fminf(a.x, mx), fminf(a.y, mx), fminf(a.z, mx));
 }
 
+static __forceinline__ __device__ void profile_add(unsigned long long* value, unsigned long long delta) {
+  if (params.stats) atomicAdd(value, delta);
+}
+
+static __forceinline__ __device__ void profile_inc(unsigned long long* value) {
+  if (params.stats) atomicAdd(value, 1ull);
+}
+
 static __forceinline__ __device__ float eval_quad(float w0, float w1, float w2, float u) {
   return w0 + w1 * u + w2 * u * u;
 }
@@ -68,6 +76,25 @@ static __forceinline__ __device__ float eval_poly3_asc(const float q[4], float u
 
 static __forceinline__ __device__ float eval_poly3_derivative_asc(const float q[4], float u) {
   return (3.0f * q[3] * u + 2.0f * q[2]) * u + q[1];
+}
+
+static __forceinline__ __device__ float eval_poly4_asc(const float q[5], float u) {
+  return (((q[4] * u + q[3]) * u + q[2]) * u + q[1]) * u + q[0];
+}
+
+static __forceinline__ __device__ float eval_poly4_derivative_asc(const float q[5], float u) {
+  return ((4.0f * q[4] * u + 3.0f * q[3]) * u + 2.0f * q[2]) * u + q[1];
+}
+
+static __forceinline__ __device__ float max_abs_width_interval(float w0, float w1, float w2) {
+  float m = fmaxf(fabsf(w0), fabsf(w0 + w1 + w2));
+  if (fabsf(w2) > 1e-12f) {
+    const float u = -w1 / (2.0f * w2);
+    if (u > 0.0f && u < 1.0f) {
+      m = fmaxf(m, fabsf(eval_quad(w0, w1, w2, u)));
+    }
+  }
+  return m;
 }
 
 static __forceinline__ __device__ int solve_quadratic_interval(const float q[3], float out[2], float t0, float t1) {
@@ -148,22 +175,47 @@ static __forceinline__ __device__ int solve_cubic_cardano(float a, float b, floa
 }
 
 static __forceinline__ __device__ int solve_cubic_interval_asc(const float q[4], float out[3], float t0, float t1) {
-  const float eps = 1e-6f;
-  float roots_direct[3];
-  int n_direct = solve_cubic_cardano(q[3], q[2], q[1], q[0], roots_direct);
+  const float eps = 1e-7f;
+  const float a = q[3];
+  const float b = q[2];
+  const float c = q[1];
+  const float d = q[0];
+  if (fabsf(a) < eps) {
+    float q2[3] = {d, c, b};
+    return solve_quadratic_interval(q2, out, t0, t1);
+  }
 
-  float direct_cauchy = 1.0f + fmaxf(fabsf(q[2] / q[3]), fmaxf(fabsf(q[1] / q[3]), fabsf(q[0] / q[3])));
-  float inverse_cauchy = 1e30f;
+  float qa_work = a;
+  float qb_work = b;
+  float qc_work = c;
+  float qd_work = d;
+  float rollback_shift = 0.0f;
+  const float shift = 0.5f;
+  const float shifted_d = ((a * shift + b) * shift + c) * shift + d;
+  if (fabsf(shifted_d) > fabsf(d)) {
+    qa_work = a;
+    qb_work = b + 3.0f * a * shift;
+    qc_work = c + 2.0f * b * shift + 3.0f * a * shift * shift;
+    qd_work = shifted_d;
+    rollback_shift = shift;
+  }
+
+  float roots_direct[3];
+  int n_direct = solve_cubic_cardano(qa_work, qb_work, qc_work, qd_work, roots_direct);
+  for (int i = 0; i < n_direct; ++i) roots_direct[i] += rollback_shift;
   float roots_inv_u[3];
   int n_inv = 0;
-  if (fabsf(q[0]) > 1e-12f) {
-    float inv_poly[4] = {q[3], q[2], q[1], q[0]};
+  const float direct_cauchy =
+      fmaxf(fabsf(qd_work), fmaxf(fabsf(qc_work), fabsf(qb_work))) * fabsf(qd_work);
+  float inverse_cauchy = 1e30f;
+  if (fabsf(qd_work) > eps) {
     float roots_inv[3];
-    n_inv = solve_cubic_cardano(inv_poly[3], inv_poly[2], inv_poly[1], inv_poly[0], roots_inv);
+    n_inv = solve_cubic_cardano(qd_work, qc_work, qb_work, qa_work, roots_inv);
     for (int i = 0; i < n_inv; ++i) {
-      roots_inv_u[i] = (fabsf(roots_inv[i]) > 1e-12f) ? 1.0f / roots_inv[i] : 1e30f;
+      roots_inv_u[i] = fabsf(roots_inv[i]) > eps ? 1.0f / roots_inv[i] + rollback_shift : 1e30f;
     }
-    inverse_cauchy = 1.0f + fmaxf(fabsf(q[1] / q[0]), fmaxf(fabsf(q[2] / q[0]), fabsf(q[3] / q[0])));
+    inverse_cauchy =
+        fmaxf(fabsf(qa_work), fmaxf(fabsf(qc_work), fabsf(qb_work))) * fabsf(qa_work);
   }
 
   const float* candidates = roots_direct;
@@ -172,17 +224,57 @@ static __forceinline__ __device__ int solve_cubic_interval_asc(const float q[4],
     candidates = roots_inv_u;
     n = n_inv;
   }
+  if (n <= 0) return 0;
+
+  int distinct = 0;
+  float best_sep = -1.0f;
+  for (int i = 0; i < n; ++i) {
+    float sep = 1e30f;
+    if (n == 1) sep = 1e30f;
+    for (int j = 0; j < n; ++j) {
+      if (i != j) sep = fminf(sep, fabsf(candidates[i] - candidates[j]));
+    }
+    if (sep > best_sep) {
+      best_sep = sep;
+      distinct = i;
+    }
+  }
+
+  float u0 = candidates[distinct];
+  const float f0 = eval_poly3_asc(q, u0);
+  const float fp0 = eval_poly3_derivative_asc(q, u0);
+  if (fabsf(fp0) > 1e-12f) {
+    const float nr = u0 - f0 / fp0;
+    if (fabsf(eval_poly3_asc(q, nr)) <= fabsf(f0)) u0 = nr;
+  }
+
+  float candidates_all[3];
+  int candidate_count = 0;
+  candidates_all[candidate_count++] = u0;
+
+  const float qa = a;
+  const float qb = b + qa * u0;
+  const float qc = c + qb * u0;
+  float q2[3] = {qc, qb, qa};
+  float qroots[2];
+  const int nq = solve_quadratic_interval(q2, qroots, -1e30f, 1e30f);
+  for (int i = 0; i < nq; ++i) {
+    candidates_all[candidate_count++] = qroots[i];
+  }
 
   int out_n = 0;
-  for (int i = 0; i < n; ++i) {
-    float r = candidates[i];
-    if (!(r >= t0 - eps && r <= t1 + eps)) continue;
+  for (int i = 0; i < candidate_count; ++i) {
+    float r = candidates_all[i];
+    if (!(r >= t0 - 1e-6f && r <= t1 + 1e-6f)) continue;
     float clamped = fminf(t1, fmaxf(t0, r));
     float f = eval_poly3_asc(q, clamped);
     float fp = eval_poly3_derivative_asc(q, clamped);
     if (fabsf(fp) > 1e-12f) {
       float refined = clamped - f / fp;
-      if (refined >= t0 - eps && refined <= t1 + eps) clamped = fminf(t1, fmaxf(t0, refined));
+      if (refined >= t0 - 1e-6f && refined <= t1 + 1e-6f &&
+          fabsf(eval_poly3_asc(q, refined)) <= fabsf(f)) {
+        clamped = fminf(t1, fmaxf(t0, refined));
+      }
     }
     if (fabsf(eval_poly3_asc(q, clamped)) > 1e-4f) continue;
     bool unique = true;
@@ -195,6 +287,87 @@ static __forceinline__ __device__ int solve_cubic_interval_asc(const float q[4],
     if (unique) out[out_n++] = clamped;
   }
   return out_n;
+}
+
+static __forceinline__ __device__ void add_unique_root(float out[4], int& n, float r, float eps) {
+  for (int i = 0; i < n; ++i) {
+    if (fabsf(out[i] - r) < eps) return;
+  }
+  if (n < 4) out[n++] = r;
+}
+
+static __forceinline__ __device__ void sort4(float* values, int n) {
+  for (int i = 0; i < n; ++i) {
+    for (int j = i + 1; j < n; ++j) {
+      if (values[j] < values[i]) {
+        float t = values[i];
+        values[i] = values[j];
+        values[j] = t;
+      }
+    }
+  }
+}
+
+static __forceinline__ __device__ int solve_quartic_interval_asc(const float q[5], float out[4], float t0, float t1) {
+  const float eps = 1e-6f;
+  if (fabsf(q[4]) < 1e-8f) {
+    float c[4] = {q[0], q[1], q[2], q[3]};
+    float roots3[3];
+    const int n3 = solve_cubic_interval_asc(c, roots3, t0, t1);
+    for (int i = 0; i < n3; ++i) out[i] = roots3[i];
+    return n3;
+  }
+
+  float d[4] = {q[1], 2.0f * q[2], 3.0f * q[3], 4.0f * q[4]};
+  float critical[3];
+  int nc = solve_cubic_interval_asc(d, critical, t0, t1);
+  sort4(critical, nc);
+
+  float points[5];
+  int np = 0;
+  points[np++] = t0;
+  for (int i = 0; i < nc; ++i) {
+    if (critical[i] > t0 + 1e-5f && critical[i] < t1 - 1e-5f) points[np++] = critical[i];
+  }
+  points[np++] = t1;
+  sort4(points, np);
+
+  int n = 0;
+  for (int i = 0; i < np; ++i) {
+    const float u = points[i];
+    if (fabsf(eval_poly4_asc(q, u)) < 1e-4f) add_unique_root(out, n, u, 1e-4f);
+  }
+
+  for (int i = 0; i + 1 < np; ++i) {
+    float lo = points[i];
+    float hi = points[i + 1];
+    float flo = eval_poly4_asc(q, lo);
+    float fhi = eval_poly4_asc(q, hi);
+    if ((flo < 0.0f) == (fhi < 0.0f)) continue;
+    for (int it = 0; it < 32; ++it) {
+      const float mid = 0.5f * (lo + hi);
+      const float fm = eval_poly4_asc(q, mid);
+      if ((flo < 0.0f) != (fm < 0.0f)) {
+        hi = mid;
+        fhi = fm;
+      } else {
+        lo = mid;
+        flo = fm;
+      }
+    }
+    float r = 0.5f * (lo + hi);
+    const float f = eval_poly4_asc(q, r);
+    const float fp = eval_poly4_derivative_asc(q, r);
+    if (fabsf(fp) > 1e-12f) {
+      const float refined = r - f / fp;
+      if (refined >= t0 - eps && refined <= t1 + eps &&
+          fabsf(eval_poly4_asc(q, refined)) <= fabsf(f)) {
+        r = fminf(t1, fmaxf(t0, refined));
+      }
+    }
+    add_unique_root(out, n, r, 1e-4f);
+  }
+  return n;
 }
 
 static __forceinline__ __device__ float3 eval_ribbon2(const Ribbon2Data& r, float u, float v) {
@@ -228,6 +401,104 @@ static __forceinline__ __device__ float3 ribbon3_bitangent(const Ribbon3Data& r,
   return base + e;
 }
 
+static __forceinline__ __device__ float3 ribbon4_directrix(const Ribbon4Data& r, float u) {
+  return ((r.d3 * u + r.d2) * u + r.d1) * u + r.d0;
+}
+
+static __forceinline__ __device__ float3 ribbon4_directrix_derivative(const Ribbon4Data& r, float u) {
+  return (3.0f * r.d3 * u + 2.0f * r.d2) * u + r.d1;
+}
+
+static __forceinline__ __device__ float3 ribbon4_generator(const Ribbon4Data& r, float u) {
+  return (r.g2 * u + r.g1) * u + r.g0;
+}
+
+static __forceinline__ __device__ float3 ribbon4_generator_derivative(const Ribbon4Data& r, float u) {
+  return 2.0f * r.g2 * u + r.g1;
+}
+
+static __forceinline__ __device__ float3 ribbon4c_center(const Ribbon4Data& r, float v) {
+  return r.d0 + r.g0 * v + r.d2 * (v * v);
+}
+
+static __forceinline__ __device__ float3 ribbon4c_width_axis(const Ribbon4Data& r, float v) {
+  return r.d1 + r.g1 * v + r.d3 * (v * v);
+}
+
+static __forceinline__ __device__ float3 ribbon4c_center_derivative(const Ribbon4Data& r, float v) {
+  return r.g0 + 2.0f * r.d2 * v;
+}
+
+static __forceinline__ __device__ float3 ribbon4c_width_axis_derivative(const Ribbon4Data& r, float v) {
+  return r.g1 + 2.0f * r.d3 * v;
+}
+
+static __forceinline__ __device__ float3 shader_segment_start(const RibbonPrimitive& p) {
+  if (p.type == RIBBON_TYPE_3) return p.r3.b0;
+  if (p.type == RIBBON_TYPE_4C) return ribbon4c_center(p.r4, 0.0f);
+  if (p.type == RIBBON_TYPE_4A || p.type == RIBBON_TYPE_4B) return ribbon4_directrix(p.r4, 0.0f);
+  return p.r2.q00;
+}
+
+static __forceinline__ __device__ float3 shader_segment_end(const RibbonPrimitive& p) {
+  if (p.type == RIBBON_TYPE_3) return p.r3.b2;
+  if (p.type == RIBBON_TYPE_4C) return ribbon4c_center(p.r4, 1.0f);
+  if (p.type == RIBBON_TYPE_4A || p.type == RIBBON_TYPE_4B) return ribbon4_directrix(p.r4, 1.0f);
+  return p.r2.q11;
+}
+
+static __forceinline__ __device__ void shader_add_quadratic_directrix_delta(
+    Ribbon4Data& r,
+    const float3& d0,
+    const float3& dm,
+    const float3& d1) {
+  const float3 m = dm - d0;
+  const float3 e = d1 - d0;
+  r.d0 = r.d0 + d0;
+  r.d1 = r.d1 + (4.0f * m - e);
+  r.d2 = r.d2 + (2.0f * e - 4.0f * m);
+}
+
+static __forceinline__ __device__ void shader_tilt_ribbon4_generator(Ribbon4Data& r, const float3& d, float amount) {
+  const float3 g1 = ribbon4_generator(r, 1.0f);
+  const float3 target = normalize3(g1 + amount * d);
+  r.g1 = r.g1 + (target - g1);
+}
+
+static __forceinline__ __device__ RibbonPrimitive shader_animated_primitive(RibbonPrimitive p) {
+  if (!params.shader_wind_enabled) return p;
+  if (!(p.type == RIBBON_TYPE_3 || p.type == RIBBON_TYPE_4A || p.type == RIBBON_TYPE_4B ||
+        p.type == RIBBON_TYPE_4C)) return p;
+  const float3 base = shader_segment_start(p);
+  if (fabsf(base.y) >= 0.08f) return p;
+  const float height = fmaxf(0.05f, shader_segment_end(p).y - base.y);
+  const float phase = base.x * 2.2f + base.z * 3.1f + params.shader_wind_time * params.shader_wind_speed;
+  const float gust = 0.55f + 0.45f * sinf(phase) + 0.20f * sinf(phase * 2.37f + 1.1f);
+  const float amp = params.shader_wind_strength * height * gust;
+  const float3 d = normalize3(make_float3(0.82f, 0.0f, -0.38f)) * amp;
+  const float dlen = sqrtf(fmaxf(0.0f, dot3(d, d)));
+  if (p.type == RIBBON_TYPE_3) {
+    p.r3.b1 = p.r3.b1 + 0.48f * d;
+    p.r3.b2 = p.r3.b2 + d;
+    p.r3.b1.y -= dlen * 0.03f;
+    p.r3.b2.y -= dlen * 0.07f;
+    p.r3.bt1 = normalize3(p.r3.bt1 + 0.10f * d);
+  } else if (p.type == RIBBON_TYPE_4C) {
+    const float3 mid = 0.48f * d + make_float3(0.0f, -dlen * 0.03f, 0.0f);
+    const float3 end = d + make_float3(0.0f, -dlen * 0.07f, 0.0f);
+    const float3 a = 4.0f * mid - end;
+    const float3 b = 2.0f * end - 4.0f * mid;
+    p.r4.g0 = p.r4.g0 + a;
+    p.r4.d2 = p.r4.d2 + b;
+  } else {
+    const float3 mid = 0.48f * d + make_float3(0.0f, -dlen * 0.03f, 0.0f);
+    const float3 end = d + make_float3(0.0f, -dlen * 0.07f, 0.0f);
+    shader_add_quadratic_directrix_delta(p.r4, make_float3(0.0f, 0.0f, 0.0f), mid, end);
+    shader_tilt_ribbon4_generator(p.r4, d, 0.10f);
+  }
+  return p;
+}
+
 static __forceinline__ __device__ bool intersect_ribbon2(
     const Ribbon2Data& r,
     const float3& ro,
@@ -247,7 +518,12 @@ static __forceinline__ __device__ bool intersect_ribbon2(
       dot3(D1, X1)};
 
   float roots[2];
+  const unsigned long long solve_begin = params.stats ? clock64() : 0ull;
   int n_roots = solve_quadratic_interval(q, roots, 0.0f, 1.0f);
+  if (params.stats) {
+    profile_add(&params.stats->solver_cycles_r2, clock64() - solve_begin);
+    profile_inc(&params.stats->solver_calls_r2);
+  }
   bool hit = false;
 
   for (int i = 0; i < n_roots; ++i) {
@@ -281,6 +557,15 @@ static __forceinline__ __device__ bool intersect_ribbon3(
   const float3 C1 = ribbon3_c1(r);
   const float3 C2 = ribbon3_c2(r);
 
+  const float3 cull_n = cross3(r.b2 - r.b0, rd);
+  const float d0 = dot3(C0, cull_n);
+  float dm = d0 + dot3(2.0f * C1 + C2, cull_n) * 0.25f;
+  if ((d0 > 0.0f) == (dm > 0.0f)) {
+    dm = fminf(fabsf(dm), fabsf(d0));
+    const float wm = max_abs_width_interval(r.w0, r.w1, r.w2);
+    if (dm * dm > wm * wm * dot3(cull_n, cull_n)) return false;
+  }
+
   const float3 bt1s = r.alpha * r.bt1;
   float3 xn0 = cross3(rd, r.bt0);
   float3 xn1 = cross3(rd, bt1s - r.bt0);
@@ -296,18 +581,37 @@ static __forceinline__ __device__ bool intersect_ribbon3(
       dot3(C2, xn1) - bg};
 
   float roots[3];
+  const unsigned long long solve_begin = params.stats ? clock64() : 0ull;
   int n_roots = solve_cubic_interval_asc(q, roots, 0.0f, 1.0f);
+  if (params.stats) {
+    profile_add(&params.stats->solver_cycles_r3, clock64() - solve_begin);
+    profile_inc(&params.stats->solver_calls_r3);
+  }
   const float epsilon = 1e-5f;
   bool hit = false;
 
   for (int i = 0; i < n_roots; ++i) {
     float u = roots[i];
     float y0 = eval_poly3_asc(q, u);
+    float3 n0 = xn0 + xn1 * u;
+    float3 p0 = C0 + C1 * u + C2 * (u * u);
+    float dun = dot3(p0, n0);
+    float dud = dot3(ribbon3_velocity(r, u), n0);
+    if (fabsf(dud) > 1e-12f) {
+      float adjusted_u = u - dun / dud;
+      if (adjusted_u >= 0.0f && adjusted_u <= 1.0f) {
+        float y1 = eval_poly3_asc(q, adjusted_u);
+        if (fabsf(y1) <= fabsf(y0)) {
+          u = adjusted_u;
+          y0 = y1;
+        }
+      }
+    }
     if (fabsf(y0) > epsilon) continue;
 
     float w = fabsf(eval_quad(r.w0, r.w1, r.w2, u));
     float3 bn = normalize3(ribbon3_bitangent(r, u));
-    float3 C = ribbon3_curve(r, u);
+    float3 C = ribbon3_curve(r, u) - ro;
     float3 sn = normalize3(cross3(ribbon3_velocity(r, u), bn));
     float ws = (dot3(bn, rd) > 0.0f) ? -1.0f : 1.0f;
     float3 pn = ((dot3(sn, rd) > 0.0f) ? -1.0f : 1.0f) * sn + ws * bn;
@@ -319,14 +623,115 @@ static __forceinline__ __device__ bool intersect_ribbon3(
     float num = dot3(pn, C);
     float tn = (num - ws * w) / den;
     float tp = (num + ws * w) / den;
-    float dn = dot3((ro + tn * rd) - B, sn);
-    float dp = dot3((ro + tp * rd) - A, sn);
+    float dn = dot3(tn * rd - B, sn);
+    float dp = dot3(tp * rd - A, sn);
     if ((dn > 0.0f) == (dp > 0.0f)) continue;
     float vi = dn / (dn - dp);
     float ti = tn + (tp - tn) * vi;
     if (ti <= tmin) continue;
     float v = 2.0f * vi - 1.0f;
     if (optixReportIntersection(ti - epsilon * 0.5f, 0, __float_as_uint(u), __float_as_uint(v))) hit = true;
+  }
+  return hit;
+}
+
+static __forceinline__ __device__ bool intersect_ribbon4(
+    const Ribbon4Data& r,
+    const float3& ro,
+    const float3& rd,
+    float tmin,
+    unsigned long long* solver_cycles,
+    unsigned long long* solver_calls) {
+  const float3 x0 = cross3(r.g0, rd);
+  const float3 x1 = cross3(r.g1, rd);
+  const float3 x2 = cross3(r.g2, rd);
+  const float3 d0 = r.d0 - ro;
+  const float3 d[4] = {d0, r.d1, r.d2, r.d3};
+  const float3 x[3] = {x0, x1, x2};
+  float q[5] = {};
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      if (i + j < 5) q[i + j] += dot3(d[i], x[j]);
+    }
+  }
+
+  float roots[4];
+  const unsigned long long solve_begin = params.stats ? clock64() : 0ull;
+  int n_roots = solve_quartic_interval_asc(q, roots, 0.0f, 1.0f);
+  if (params.stats) {
+    profile_add(solver_cycles, clock64() - solve_begin);
+    profile_inc(solver_calls);
+  }
+
+  bool hit = false;
+  for (int i = 0; i < n_roots; ++i) {
+    const float u = roots[i];
+    const float3 D = ribbon4_directrix(r, u);
+    const float3 G = ribbon4_generator(r, u);
+    const float3 p = D - ro;
+    const float a = dot3(rd, rd);
+    const float b = dot3(rd, G);
+    const float c = dot3(G, G);
+    const float d_ray = dot3(rd, p);
+    const float e = dot3(G, p);
+    const float den = a * c - b * b;
+    if (fabsf(den) < 1e-10f) continue;
+    const float v = (b * d_ray - a * e) / den;
+    const float t = (d_ray + b * v) / a;
+    if (t <= tmin) continue;
+    const float w = fabsf(eval_quad(r.w0, r.w1, r.w2, u));
+    if (fabsf(v) > w) continue;
+    if (optixReportIntersection(t, 0, __float_as_uint(u), __float_as_uint(v))) hit = true;
+  }
+  return hit;
+}
+
+static __forceinline__ __device__ bool intersect_ribbon4c(
+    const Ribbon4Data& r,
+    const float3& ro,
+    const float3& rd,
+    float tmin,
+    unsigned long long* solver_cycles,
+    unsigned long long* solver_calls) {
+  const float3 a[3] = {r.d0 - ro, r.g0, r.d2};
+  const float3 b[3] = {r.d1, r.g1, r.d3};
+  float q[5] = {};
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      q[i + j] += dot3(a[i], cross3(b[j], rd));
+    }
+  }
+
+  float roots[4];
+  const unsigned long long solve_begin = params.stats ? clock64() : 0ull;
+  int n_roots = solve_quartic_interval_asc(q, roots, 0.0f, 1.0f);
+  if (params.stats) {
+    profile_add(solver_cycles, clock64() - solve_begin);
+    profile_inc(solver_calls);
+  }
+
+  bool hit = false;
+  for (int i = 0; i < n_roots; ++i) {
+    const float v = roots[i];
+    const float3 A = ribbon4c_center(r, v) - ro;
+    const float3 B = ribbon4c_width_axis(r, v);
+    const float a_ray = dot3(rd, rd);
+    const float b_ray = dot3(rd, B);
+    const float c = dot3(B, B);
+    if (c < 1e-14f) continue;
+    const float d_ray = dot3(rd, A);
+    const float e = dot3(B, A);
+    const float den = a_ray * c - b_ray * b_ray;
+    if (den < 1e-8f * fmaxf(1.0f, a_ray * c)) continue;
+    const float u = (b_ray * d_ray - a_ray * e) / den;
+    const float t = (d_ray + b_ray * u) / a_ray;
+    if (t <= tmin) continue;
+    if (fabsf(u) > 1.0001f) continue;
+    const float3 residual = t * rd - A - u * B;
+    const float residual_tol = 2e-4f;
+    if (dot3(residual, residual) > residual_tol * residual_tol) continue;
+    const float uc = fminf(1.0f, fmaxf(-1.0f, u));
+    if (optixReportIntersection(t, 0, __float_as_uint(uc), __float_as_uint(v))) hit = true;
   }
   return hit;
 }
@@ -544,6 +949,7 @@ static __forceinline__ __device__ float3 environment_color(const float3& rd) {
 static __forceinline__ __device__ bool trace_shadow(const float3& ro, const float3& rd, float tmax) {
   unsigned int occluded = 0;
   unsigned int dummy = 0;
+  const unsigned long long trace_begin = params.stats ? clock64() : 0ull;
   optixTrace(
       params.gas,
       ro,
@@ -558,6 +964,10 @@ static __forceinline__ __device__ bool trace_shadow(const float3& ro, const floa
       1,
       occluded,
       dummy);
+  if (params.stats) {
+    profile_add(&params.stats->shadow_trace_cycles, clock64() - trace_begin);
+    profile_inc(&params.stats->shadow_trace_count);
+  }
   return occluded != 0;
 }
 
@@ -619,6 +1029,15 @@ static __forceinline__ __device__ float3 sample_direct_lighting(
   return direct;
 }
 
+static __forceinline__ __device__ float3 sample_sky_fill(const HitInfo& hit, const float3& n) {
+  if (hit.material_type != 0) return f3(0.0f, 0.0f, 0.0f);
+  const float up = fmaxf(0.0f, n.y);
+  const float strength = 0.10f + 0.24f * up;
+  const float3 sky = f3(0.42f, 0.55f, 0.78f);
+  const float3 ground = f3(0.16f, 0.23f, 0.10f);
+  return mul3(hit.albedo, lerp3(ground, sky, up) * strength);
+}
+
 extern "C" __global__ void __raygen__rg() {
   const uint3 idx = optixGetLaunchIndex();
   const uint3 dim = optixGetLaunchDimensions();
@@ -655,6 +1074,7 @@ extern "C" __global__ void __raygen__rg() {
       hit.hit = 0;
       unsigned int p0, p1;
       pack_ptr(&hit, p0, p1);
+      const unsigned long long trace_begin = params.stats ? clock64() : 0ull;
       optixTrace(
           params.gas,
           ro,
@@ -669,6 +1089,10 @@ extern "C" __global__ void __raygen__rg() {
           0,
           p0,
           p1);
+      if (params.stats) {
+        profile_add(&params.stats->primary_trace_cycles, clock64() - trace_begin);
+        profile_inc(&params.stats->primary_trace_count);
+      }
 
       if (!hit.hit) {
         radiance = radiance + mul3(throughput, hit.env);
@@ -686,6 +1110,7 @@ extern "C" __global__ void __raygen__rg() {
       float3 n = hit.normal;
       if (dot3(n, rd) > 0.0f) n = n * -1.0f;
       radiance = radiance + mul3(throughput, sample_direct_lighting(hit, n, -rd, seed));
+      radiance = radiance + mul3(throughput, sample_sky_fill(hit, n));
 
       BsdfSample bs = sample_bsdf(hit, n, -rd, seed);
       rd = bs.wi;
@@ -739,10 +1164,11 @@ extern "C" __global__ void __miss__shadow() {
 }
 
 extern "C" __global__ void __closesthit__ch() {
+  const unsigned long long hit_begin = params.stats ? clock64() : 0ull;
   unsigned int prim_idx = optixGetPrimitiveIndex();
   HitInfo* hit = reinterpret_cast<HitInfo*>(unpack_ptr(optixGetPayload_0(), optixGetPayload_1()));
   if (prim_idx >= params.primitive_count) return;
-  RibbonPrimitive p = params.primitives[prim_idx];
+  RibbonPrimitive p = shader_animated_primitive(params.primitives[prim_idx]);
   float u = __uint_as_float(optixGetAttribute_0());
   float v = __uint_as_float(optixGetAttribute_1());
 
@@ -752,11 +1178,21 @@ extern "C" __global__ void __closesthit__ch() {
     float3 dQdu = (1.0f - v) * (r.q10 - r.q00) + v * (r.q11 - r.q01);
     float3 dQdv = (1.0f - u) * (r.q01 - r.q00) + u * (r.q11 - r.q10);
     n = normalize3(cross3(dQdu, dQdv));
-  } else {
+  } else if (p.type == RIBBON_TYPE_3) {
     const Ribbon3Data& r = p.r3;
     float3 vel = ribbon3_velocity(r, u);
     float3 bn = normalize3(ribbon3_bitangent(r, u));
     n = normalize3(cross3(vel, bn));
+  } else if (p.type == RIBBON_TYPE_4C) {
+    const Ribbon4Data& r = p.r4;
+    const float3 du = ribbon4c_width_axis(r, v);
+    const float3 dv = ribbon4c_center_derivative(r, v) + u * ribbon4c_width_axis_derivative(r, v);
+    n = normalize3(cross3(du, dv));
+  } else {
+    const Ribbon4Data& r = p.r4;
+    const float3 du = ribbon4_directrix_derivative(r, u) + v * ribbon4_generator_derivative(r, u);
+    const float3 dv = ribbon4_generator(r, u);
+    n = normalize3(cross3(du, dv));
   }
 
   float3 rd = normalize3(optixGetWorldRayDirection());
@@ -773,23 +1209,81 @@ extern "C" __global__ void __closesthit__ch() {
   hit->roughness = p.roughness;
   hit->material_type = p.material_type;
   hit->ior = p.ior;
+  if (params.stats) {
+    profile_add(&params.stats->closesthit_cycles, clock64() - hit_begin);
+    profile_inc(&params.stats->closesthit_count);
+  }
 }
 
 extern "C" __global__ void __closesthit__shadow() {
+  const unsigned long long hit_begin = params.stats ? clock64() : 0ull;
   optixSetPayload_0(1u);
+  if (params.stats) {
+    profile_add(&params.stats->closesthit_cycles, clock64() - hit_begin);
+    profile_inc(&params.stats->closesthit_count);
+  }
 }
 
 extern "C" __global__ void __intersection__ribbon() {
   unsigned int prim_idx = optixGetPrimitiveIndex();
   if (prim_idx >= params.primitive_count) return;
-  RibbonPrimitive p = params.primitives[prim_idx];
+  RibbonPrimitive p = shader_animated_primitive(params.primitives[prim_idx]);
   float3 ro = optixGetObjectRayOrigin();
   float3 rd = optixGetObjectRayDirection();
   float tmin = optixGetRayTmin();
 
   if (p.type == RIBBON_TYPE_2) {
+    const unsigned long long begin = params.stats ? clock64() : 0ull;
     intersect_ribbon2(p.r2, ro, rd, tmin);
+    if (params.stats) {
+      profile_add(&params.stats->intersection_cycles_r2, clock64() - begin);
+      profile_inc(&params.stats->intersection_calls_r2);
+    }
   } else if (p.type == RIBBON_TYPE_3) {
+    const unsigned long long begin = params.stats ? clock64() : 0ull;
     intersect_ribbon3(p.r3, ro, rd, tmin);
+    if (params.stats) {
+      profile_add(&params.stats->intersection_cycles_r3, clock64() - begin);
+      profile_inc(&params.stats->intersection_calls_r3);
+    }
+  } else if (p.type == RIBBON_TYPE_4A) {
+    const unsigned long long begin = params.stats ? clock64() : 0ull;
+    intersect_ribbon4(
+        p.r4,
+        ro,
+        rd,
+        tmin,
+        params.stats ? &params.stats->solver_cycles_r4a : nullptr,
+        params.stats ? &params.stats->solver_calls_r4a : nullptr);
+    if (params.stats) {
+      profile_add(&params.stats->intersection_cycles_r4a, clock64() - begin);
+      profile_inc(&params.stats->intersection_calls_r4a);
+    }
+  } else if (p.type == RIBBON_TYPE_4B) {
+    const unsigned long long begin = params.stats ? clock64() : 0ull;
+    intersect_ribbon4(
+        p.r4,
+        ro,
+        rd,
+        tmin,
+        params.stats ? &params.stats->solver_cycles_r4b : nullptr,
+        params.stats ? &params.stats->solver_calls_r4b : nullptr);
+    if (params.stats) {
+      profile_add(&params.stats->intersection_cycles_r4b, clock64() - begin);
+      profile_inc(&params.stats->intersection_calls_r4b);
+    }
+  } else if (p.type == RIBBON_TYPE_4C) {
+    const unsigned long long begin = params.stats ? clock64() : 0ull;
+    intersect_ribbon4c(
+        p.r4,
+        ro,
+        rd,
+        tmin,
+        params.stats ? &params.stats->solver_cycles_r4c : nullptr,
+        params.stats ? &params.stats->solver_calls_r4c : nullptr);
+    if (params.stats) {
+      profile_add(&params.stats->intersection_cycles_r4c, clock64() - begin);
+      profile_inc(&params.stats->intersection_calls_r4c);
+    }
   }
 }

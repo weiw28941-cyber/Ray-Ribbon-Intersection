@@ -13,7 +13,7 @@ obj/
 *.exe
 *.ptx
 
-# CMake / VS
+# CMake / Visual Studio
 .vs/
 CMakeFiles/
 CMakeCache.txt
@@ -26,22 +26,47 @@ compile_commands.json
 *.user
 *.suo
 
-# Render outputs
-*.ppm
-*.png
-*.jpg
-*.jpeg
-*.hdr
-*.exr
-aovs*/
-demo_output/
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local helper / experiment scripts.
+# Keep build and run commands documented in README instead of committing ad-hoc scripts.
+scripts/
+
+# Render outputs and captures
+output.ppm
 output*/
+demo_output/
+aovs*/
+captures/
+*.exr
+*.hdr
+
+# Generated heavy scene files. Keep hand-authored scenes/default.rrs tracked.
+scenes/game_grass_*.rrs
+scenes/grassland.rrs
+scenes/wind_grass*.rrs
+scenes/strip*.rrs
+scenes/dynamic_*.rrs
+scenes/ribbon_multisegment_comparison.rrs
+scenes/ribbon_twist_comparison.rrs
+scenes/ribbon_structure_comparison.rrs
+scenes/ribbon4c_focus.rrs
+
+# Generated reports and benchmark outputs
+reports/*
+!reports/README.md
+reports/benchmark*/
+reports/**/*.ppm
+reports/**/*_raw.txt
+reports/*_raw.txt
+reports/_tmp*.rrs
+reports/*.bak
+reports/~$*
 
 # OS/editor
 .DS_Store
 Thumbs.db
 *.tmp
 *.log
-
-# Local notes
-paper_extracted.txt

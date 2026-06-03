@@ -25,56 +25,84 @@ Implemented in this repo:
 - CUDA Toolkit (tested with CUDA 12.5+)
 - Visual Studio 2022 (MSVC toolchain)
 - CMake 3.24+
+- OpenGL-capable display driver
+- GLFW 3.4 is fetched by CMake if no system package is found
 
 ## 2) Download + Configure OptiX SDK
 
-Run:
+Install the NVIDIA OptiX SDK, then point CMake at the SDK root. On Windows
+PowerShell this can be done with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup_optix.ps1
+$env:OPTIX_ROOT = "C:\Path\To\optix-sdk-8.1.0"
 ```
 
-This script (default `v8.1.0`):
-
-- downloads official OptiX SDK source package (default `v8.1.0`)
-- extracts it to `D:\SDKs\optix-sdk-8.1.0`
-- sets user environment variable `OPTIX_ROOT`
+The SDK root must contain `include\optix.h`.
 
 ## 3) Build
 
+Run from a Visual Studio Developer PowerShell or another shell with the MSVC
+toolchain available:
+
 ```powershell
-mkdir build
-cd build
-"C:\Program Files\CMake\bin\cmake.exe" -G "Visual Studio 17 2022" -A x64 -DOPTIX_ROOT="$env:OPTIX_ROOT" ..
-"C:\Program Files\CMake\bin\cmake.exe" --build . --config Release
+cmake -S . -B build -DOPTIX_ROOT="$env:OPTIX_ROOT"
+cmake --build build --config Release
 ```
 
 ## 4) Run
 
+Realtime GLFW/OpenGL viewer:
+
 ```powershell
-.\Release\ray_ribbon.exe
+.\build\ray_ribbon.exe --realtime --scene scenes\default.rrs --width 960 --height 540 --spp 1 --max-depth 2
+```
+
+Dynamic wind can be enabled on compatible ribbon scenes:
+
+```powershell
+.\build\ray_ribbon.exe --realtime --wind --scene scenes\default.rrs --width 960 --height 540 --spp 1 --max-depth 1 --wind-strength 0.20 --wind-speed 1.8
+```
+
+When `--wind` is enabled, the window title reports dynamic update costs:
+
+- `upd`: CPU ribbon deformation time
+- `gas`: primitive upload, AABB generation, and OptiX GAS rebuild time
+- `render`: OptiX launch plus framebuffer readback time
+- `frame`: full frame time, including display upload
+- `mem`: currently used GPU memory
+- `smooth`: neighboring-ribbon displacement discontinuity; lower is smoother
+
+Headless benchmark:
+
+```powershell
+.\build\ray_ribbon.exe --benchmark-static 180 --scene scenes\default.rrs --width 960 --height 540 --spp 1 --max-depth 1
+.\build\ray_ribbon.exe --benchmark-wind 180 --scene scenes\default.rrs --width 960 --height 540 --spp 1 --max-depth 1 --wind-strength 0.20 --wind-speed 1.8
+```
+
+Controls:
+
+- Drag left mouse button to orbit the camera
+- Mouse wheel zooms
+- `W/A/S/D` pans horizontally/forward
+- `Q/E` pans down/up
+- Drop a `.rrs` file onto the window to import a scene
+- `R` reloads the current scene
+- `Space` resets the camera
+- `P` saves a screenshot to `captures/`
+- `1/2/3` switch realtime quality presets
+- `Esc` closes the window
+
+Offline image render:
+
+```powershell
+.\build\ray_ribbon.exe
 ```
 
 or:
 
 ```powershell
-.\Release\ray_ribbon.exe --scene ..\..\scenes\default.rrs --out output.exr --aov-dir aovs --width 1280 --height 720 --spp 16 --max-depth 4 --denoise
+.\build\ray_ribbon.exe --scene scenes\default.rrs --out output.exr --aov-dir aovs --width 1280 --height 720 --spp 16 --max-depth 4 --denoise
 ```
-
-## 5) One-Command Demo (Windows PowerShell)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_demo.ps1 -Denoise
-```
-
-Demo output:
-
-- `demo_output/demo_beauty.exr`
-- `demo_output/aovs/` (albedo/normal/depth/beauty and denoised beauty when enabled)
-
-Output image:
-
-- `build\Release\output.ppm`
 
 ## Notes
 
@@ -86,6 +114,10 @@ Output image:
   - `light_dir dx dy dz r g b intensity`
   - `light_point px py pz r g b intensity`
   - `light_rect cx cy cz ux uy uz vx vy vz r g b intensity`
+- Scene ribbon lines:
+  - `ribbon2 q00 q01 q10 q11 w0 w1 w2 [color emission metallic roughness material_type ior]`
+  - `ribbon3 b0 b1 b2 bt0 bt1 width [color emission metallic roughness material_type ior]`
+  - `ribbon3_full b0 b1 b2 bt0 bt1 w0 w1 w2 alpha beta gamma [color emission metallic roughness material_type ior]`
 - Material extension in ribbon lines(optional tail values):
   - `material_type`: `0=diffuse`, `1=metal`, `2=dielectric`
   - `ior`: index of refraction(e.g. 1.45)
@@ -101,4 +133,10 @@ Output image:
   - `--gamma <float>`
   - `--firefly-clamp <float>`
   - `--denoise` enable OptiX denoiser(beauty guided by albedo+normal)
+  - `--realtime` launch the GLFW/OpenGL realtime viewer
+  - `--wind` enable realtime grass wind animation and benchmark overlay
+  - `--wind-strength <float>`
+  - `--wind-speed <float>`
+  - `--benchmark-static [frames]`
+  - `--benchmark-wind [frames]`
   - `--ptx <path>`
