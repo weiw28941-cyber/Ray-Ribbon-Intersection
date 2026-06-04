@@ -5,8 +5,26 @@
       "name": "x64-msvc-cuda",
       "includePath": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}"
+        "${workspaceFolder}",
+        "${env:CUDA_PATH_V12_6}/include",
+        "${env:OPTIX_ROOT}/include",
+        "${workspaceFolder}/third_party/tinyexr-release",
+        "${workspaceFolder}/third_party/tinyexr-release/deps/miniz",
+        "${workspaceFolder}/build/_deps/glfw-src/include"
       ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}/src",
+          "${workspaceFolder}",
+          "${env:CUDA_PATH_V12_6}/include",
+          "${env:OPTIX_ROOT}/include",
+          "${workspaceFolder}/third_party/tinyexr-release",
+          "${workspaceFolder}/third_party/tinyexr-release/deps/miniz",
+          "${workspaceFolder}/build/_deps/glfw-src/include"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "configurationProvider": "ms-vscode.cmake-tools",
       "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "defines": [
         "_DEBUG",

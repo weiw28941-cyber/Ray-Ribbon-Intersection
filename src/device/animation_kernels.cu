@@ -1,6 +1,10 @@
+#include "device/cuda_intellisense.h"
+
 #include "device/animation_kernels.h"
+#include "device/cuda_runtime_intellisense.h"
 
 #include <cmath>
+#include <math.h>
 
 namespace {
 
@@ -507,8 +511,20 @@ void launch_animate_primitives_kernel(
     cudaStream_t stream) {
   const unsigned block_size = 128;
   const unsigned block_count = (count + block_size - 1) / block_size;
+#if defined(__INTELLISENSE__)
+  (void)block_count;
+  (void)d_base_primitives;
+  (void)d_primitives;
+  (void)count;
+  (void)mode;
+  (void)time;
+  (void)strength;
+  (void)speed;
+  (void)stream;
+#else
   animate_primitives_kernel<<<block_count, block_size, 0, stream>>>(
       d_base_primitives, d_primitives, count, mode, time, strength, speed);
+#endif
 }
 
 void launch_compute_aabbs_kernel(
@@ -518,5 +534,13 @@ void launch_compute_aabbs_kernel(
     cudaStream_t stream) {
   const unsigned block_size = 128;
   const unsigned block_count = (count + block_size - 1) / block_size;
+#if defined(__INTELLISENSE__)
+  (void)block_count;
+  (void)d_primitives;
+  (void)d_aabbs;
+  (void)count;
+  (void)stream;
+#else
   compute_aabbs_kernel<<<block_count, block_size, 0, stream>>>(d_primitives, d_aabbs, count);
+#endif
 }

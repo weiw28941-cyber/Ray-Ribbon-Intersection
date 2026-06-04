@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "local-release",
+      "inherits": "windows-msvc-release",
+      "displayName": "Local Release",
+      "cacheVariables": {
+        "OPTIX_ROOT": "C:/Path/To/optix-sdk-8.1.0"
+      },
+      "environment": {
+        "CUDA_PATH_V12_6": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-release",
+      "configurePreset": "local-release"
+    }
+  ]
+}

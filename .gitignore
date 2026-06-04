@@ -17,6 +17,7 @@ obj/
 .vs/
 CMakeFiles/
 CMakeCache.txt
+CMakeUserPresets.json
 cmake_install.cmake
 compile_commands.json
 *.sln

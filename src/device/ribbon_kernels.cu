@@ -1,10 +1,20 @@
-#include <optix.h>
-#include <optix_device.h>
+#include "device/cuda_intellisense.h"
 
 #include <cuda_runtime.h>
 #include <vector_types.h>
+#include "device/cuda_runtime_intellisense.h"
+
+#if !defined(__INTELLISENSE__)
+#include <optix.h>
+#include <optix_device.h>
+#endif
+
+#include <cmath>
+#include <math.h>
 
 #include "shared/launch_params.h"
+
+#include "device/optix_intellisense.h"
 
 extern "C" {
 __constant__ LaunchParams params;

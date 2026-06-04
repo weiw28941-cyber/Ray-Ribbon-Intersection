@@ -4,13 +4,13 @@
     {
       "label": "cmake-configure",
       "type": "shell",
-      "command": "cmake",
+      "command": "powershell",
       "args": [
-        "-S",
-        ".",
-        "-B",
-        "build",
-        "-DOPTIX_ROOT=${env:OPTIX_ROOT}"
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\\Installer\\vswhere.exe'; $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath; if (-not $vs) { throw 'MSVC toolchain not found. Install Visual Studio C++ workload.' }; $vcvars = Join-Path $vs 'VC\\Auxiliary\\Build\\vcvars64.bat'; if (-not (Test-Path $vcvars)) { throw \"vcvars64.bat not found: $vcvars\" }; $vcvars = (New-Object -ComObject Scripting.FileSystemObject).GetFile($vcvars).ShortPath; $cmd = 'call ' + $vcvars + ' >nul && set'; $envLines = & cmd.exe /d /c $cmd; foreach ($line in $envLines) { $m = [regex]::Match($line, '^([^=]+)=(.*)$'); if ($m.Success) { [Environment]::SetEnvironmentVariable($m.Groups[1].Value, $m.Groups[2].Value, 'Process') } }; $preset = if (Test-Path 'CMakeUserPresets.json') { 'local-release' } else { 'windows-msvc-release' }; if ($preset -eq 'windows-msvc-release' -and -not $env:OPTIX_ROOT) { throw 'OPTIX_ROOT is not set. Set it or create CMakeUserPresets.json from CMakeUserPresets.json.example.' }; cmake --preset $preset; exit $LASTEXITCODE"
       ],
       "group": "build",
       "problemMatcher": []
@@ -18,12 +18,13 @@
     {
       "label": "cmake-build-release",
       "type": "shell",
-      "command": "cmake",
+      "command": "powershell",
       "args": [
-        "--build",
-        "build",
-        "--config",
-        "Release"
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\\Installer\\vswhere.exe'; $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath; if (-not $vs) { throw 'MSVC toolchain not found. Install Visual Studio C++ workload.' }; $vcvars = Join-Path $vs 'VC\\Auxiliary\\Build\\vcvars64.bat'; if (-not (Test-Path $vcvars)) { throw \"vcvars64.bat not found: $vcvars\" }; $vcvars = (New-Object -ComObject Scripting.FileSystemObject).GetFile($vcvars).ShortPath; $cmd = 'call ' + $vcvars + ' >nul && set'; $envLines = & cmd.exe /d /c $cmd; foreach ($line in $envLines) { $m = [regex]::Match($line, '^([^=]+)=(.*)$'); if ($m.Success) { [Environment]::SetEnvironmentVariable($m.Groups[1].Value, $m.Groups[2].Value, 'Process') } }; $preset = if (Test-Path 'CMakeUserPresets.json') { 'local-release' } else { 'windows-msvc-release' }; cmake --build --preset $preset; exit $LASTEXITCODE"
       ],
       "dependsOn": "cmake-configure",
       "group": {

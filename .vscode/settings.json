@@ -1,5 +1,8 @@
 {
-  "cmake.configureOnOpen": true,
+  "cmake.configureOnOpen": false,
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "windows-msvc-release",
+  "cmake.buildPreset": "windows-msvc-release",
   "cmake.buildDirectory": "${workspaceFolder}/build",
   "cmake.configureSettings": {
     "OPTIX_ROOT": "${env:OPTIX_ROOT}"
@@ -7,5 +10,18 @@
   "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
   "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
   "C_Cpp.default.cppStandard": "c++17",
-  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json"
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}",
+    "${env:CUDA_PATH_V12_6}/include",
+    "${env:OPTIX_ROOT}/include",
+    "${workspaceFolder}/third_party/tinyexr-release",
+    "${workspaceFolder}/third_party/tinyexr-release/deps/miniz",
+    "${workspaceFolder}/build/_deps/glfw-src/include"
+  ],
+  "files.associations": {
+    "*.cu": "cuda-cpp",
+    "*.cuh": "cuda-cpp"
+  }
 }

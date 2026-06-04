@@ -39,14 +39,26 @@ $env:OPTIX_ROOT = "C:\Path\To\optix-sdk-8.1.0"
 
 The SDK root must contain `include\optix.h`.
 
+For per-machine settings, copy `CMakeUserPresets.json.example` to
+`CMakeUserPresets.json` and edit the local `OPTIX_ROOT` and CUDA paths. The
+user preset file is ignored by Git. The VS Code build task automatically uses
+the `local-release` preset when this file exists.
+
 ## 3) Build
 
 Run from a Visual Studio Developer PowerShell or another shell with the MSVC
 toolchain available:
 
 ```powershell
-cmake -S . -B build -DOPTIX_ROOT="$env:OPTIX_ROOT"
-cmake --build build --config Release
+cmake --preset windows-msvc-release
+cmake --build --preset windows-msvc-release
+```
+
+If you copied the user preset template, build with:
+
+```powershell
+cmake --preset local-release
+cmake --build --preset local-release
 ```
 
 ## 4) Run
